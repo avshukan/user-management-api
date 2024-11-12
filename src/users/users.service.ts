@@ -1,34 +1,55 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
+import { PrismaService } from 'src/prisma.service';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
+  constructor(private prismaService: PrismaService) { }
+
   async create(createUserDto: CreateUserDto): Promise<UserResponseDto> {
-    const user = new UserResponseDto();
-    user.id = 1;
-    user.name = createUserDto.name;
-    user.email = createUserDto.email;
-    user.createdAt = new Date();
-    return Promise.resolve(user);
+    try {
+      return await this.prismaService.user.create({ data: createUserDto });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002' && error.meta?.target) {
+          const uniqueFields = error.meta.target as string[];
+
+          // Сопоставляем поля с пользовательскими сообщениями
+          const fieldMessages: { [key: string]: string } = {
+            email: 'Этот email уже используется',
+            username: 'Это имя пользователя уже занято',
+            phoneNumber: 'Этот номер телефона уже зарегистрирован',
+            // Добавьте другие поля и сообщения по необходимости
+          };
+
+          // Формируем сообщения для всех нарушенных полей
+          const messages = uniqueFields.map(field => fieldMessages[field] || `Поле ${field} должно быть уникальным`);
+
+          // Выбрасываем исключение с объединенным сообщением
+          throw new ConflictException(messages.join('. '));
+        }
+      }
+      // Обработка других ошибок
+      throw new InternalServerErrorException('Произошла ошибка при сохранении пользователя');
+    }
   }
 
-  findAll() {
-    return `This action returns all users`;
+  async findAll(): Promise<UserResponseDto[]> {
+    return await this.prismaService.user.findMany();
   }
 
-  findOne(id: number) {
-    const user = new UserResponseDto();
-    user.id = id;
-    return user;
+  async findOne(id: number): Promise<UserResponseDto> {
+    return await this.prismaService.user.findUnique({ where: { id } });
   }
 
-  update(id: number, updateUserDto: UpdateUserDto) {
-    return `This action updates a #${id} user`;
+  async update(id: number, updateUserDto: UpdateUserDto): Promise<UserResponseDto> {
+    return await this.prismaService.user.update({ where: { id }, data: updateUserDto });
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} user`;
+  async remove(id: number) {
+    return await this.prismaService.user.delete({ where: { id } });
   }
 }
